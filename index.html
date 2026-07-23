@@ -9,7 +9,6 @@
     <style>
         body { font-family: 'Noto Sans TC', 'DM Sans', sans-serif; }
         
-        /* Card & Animation Styles */
         .card-item { transition: all 0.3s ease; cursor: pointer; user-select: none; }
         .card-item:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
         .card-item.selected { 
@@ -62,14 +61,8 @@
     <!-- 選錯時的浮動提示訊息容器 (Toast Notification) -->
     <div id="toast-container" class="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none"></div>
 
-    <!-- Loading Screen -->
-    <div id="loading-screen" class="fixed inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-amber-500 mb-4"></div>
-        <p class="text-lg font-bold text-amber-700">正在連接雲端資料庫...</p>
-    </div>
-
     <!-- Registration Screen -->
-    <div id="reg-screen" class="hidden flex items-center justify-center min-h-[90vh] p-4">
+    <div id="reg-screen" class="flex items-center justify-center min-h-[90vh] p-4">
         <div class="bg-white/95 backdrop-blur rounded-2xl p-8 shadow-2xl max-w-md w-full text-center border border-amber-100">
             <div class="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl shadow-inner">
                 🌡️
@@ -174,9 +167,9 @@
             <div class="flex justify-between items-center mb-6">
                 <div>
                     <h2 class="text-2xl font-black text-gray-800 flex items-center">
-                        📊 各單位參與數據後台
+                        📊 各單位參與統計後台
                     </h2>
-                    <p class="text-sm text-gray-500 mt-1">即時同步雲端資料庫</p>
+                    <p class="text-sm text-gray-500 mt-1">本機儲存紀錄 (LocalStorage)</p>
                 </div>
                 <button type="button" onclick="toggleStats()" class="w-10 h-10 bg-gray-100 hover:bg-red-100 hover:text-red-600 rounded-full flex items-center justify-center text-gray-600 transition-colors font-bold text-xl">
                     ×
@@ -184,10 +177,7 @@
             </div>
             
             <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="stats-content">
-                <div class="flex justify-center items-center py-10">
-                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500 mr-3"></div>
-                    <span class="text-gray-500">載入數據中...</span>
-                </div>
+                <!-- 動態載入統計表格 -->
             </div>
             
             <div class="mt-6 pt-6 border-t border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -206,72 +196,36 @@
         </div>
     </div>
 
-    <!-- Firebase Script SDK Module -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <script>
+        // 本機端遊戲紀錄儲存機制 (LocalStorage)
+        const STORAGE_KEY = 'heat_injury_game_records_v1';
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-heat-game';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            projectId: 'mock-project',
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        
-        const collectionName = 'heat_game_records';
-        const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', collectionName);
-
-        let currentUser = null;
-        let allRecordsData = [];
-        let unsubscribeStats = null;
-        let currentRecordDocId = null;
-
-        async function initApp() {
+        function getRecords() {
             try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    const userCredential = await signInWithCustomToken(auth, __initial_auth_token);
-                    currentUser = userCredential.user;
-                } else {
-                    const userCredential = await signInAnonymously(auth);
-                    currentUser = userCredential.user;
-                }
-                
-                document.getElementById('loading-screen').classList.add('hidden');
-                document.getElementById('reg-screen').classList.remove('hidden');
-
-                setupRealtimeStats();
-            } catch (error) {
-                console.error("Firebase Auth Error:", error);
-                document.getElementById('loading-screen').innerHTML = `
-                    <div class="text-red-500 text-6xl mb-4">⚠️</div>
-                    <p class="text-lg font-bold text-red-700">系統連線失敗，請重新整理頁面</p>
-                    <p class="text-sm text-red-500 mt-2">${error.message}</p>
-                `;
+                const data = localStorage.getItem(STORAGE_KEY);
+                return data ? JSON.parse(data) : [];
+            } catch (e) {
+                return [];
             }
         }
 
-        function setupRealtimeStats() {
-            if (!currentUser) return;
-
-            unsubscribeStats = onSnapshot(recordsRef, (snapshot) => {
-                allRecordsData = [];
-                snapshot.forEach((docSnap) => {
-                    allRecordsData.push({ id: docSnap.id, ...docSnap.data() });
-                });
-                renderStatsUI();
-            }, (error) => {
-                console.error("Error listening to stats:", error);
-            });
+        function saveRecords(records) {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+            } catch (e) {
+                console.error("Failed to save records", e);
+            }
         }
 
+        let currentRecordId = null;
+
+        // 渲染後台統計介面
         function renderStatsUI() {
             const container = document.getElementById('stats-content');
             const totalText = document.getElementById('total-stats-text');
+            const allRecords = getRecords();
             
-            if (allRecordsData.length === 0) {
+            if (allRecords.length === 0) {
                 container.innerHTML = `
                     <div class="flex flex-col items-center justify-center py-12 text-gray-400">
                         <div class="text-6xl mb-4 opacity-50">📭</div>
@@ -285,7 +239,7 @@
             let totalParticipated = 0;
             let totalCompleted = 0;
 
-            allRecordsData.forEach(record => {
+            allRecords.forEach(record => {
                 const d = record.department || '未指定單位';
                 if (!deptStats[d]) {
                     deptStats[d] = { count: 0, completed: 0 };
@@ -339,43 +293,29 @@
 
             html += `</tbody></table></div>`;
             container.innerHTML = html;
-            totalText.textContent = `雲端總計：${totalParticipated} 參與 / ${totalCompleted} 完成`;
+            totalText.textContent = `統計總計：${totalParticipated} 參與 / ${totalCompleted} 完成`;
         }
 
-        // 綁定清除資料按鈕事件
-        document.getElementById('clear-btn').addEventListener('click', async () => {
-            if (!allRecordsData || allRecordsData.length === 0) {
+        // 清除測試資料按鈕事件
+        document.getElementById('clear-btn').addEventListener('click', () => {
+            const allRecords = getRecords();
+            if (allRecords.length === 0) {
                 showToast("目前沒有資料需要清除", "warning");
                 return;
             }
 
-            if (!confirm("確定要清空雲端資料庫中所有的測試紀錄嗎？此動作無法復原。")) {
+            if (!confirm("確定要清空本機儲存的所有測試紀錄嗎？此動作無法復原。")) {
                 return;
             }
 
-            const btn = document.getElementById('clear-btn');
-            btn.disabled = true;
-            btn.textContent = '清除中...';
-
-            try {
-                const deletePromises = allRecordsData.map(record => {
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', collectionName, record.id);
-                    return deleteDoc(docRef);
-                });
-                
-                await Promise.all(deletePromises);
-                showToast("已成功清空所有測試資料！", "success");
-            } catch (error) {
-                console.error("Error clearing records:", error);
-                showToast("清除失敗，請稍後再試", "error");
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '🗑️ 清除所有測試資料';
-            }
+            localStorage.removeItem(STORAGE_KEY);
+            renderStatsUI();
+            showToast("已成功清空所有測試資料！", "success");
         });
 
         window.exportToCSV = function() {
-            if (!allRecordsData || allRecordsData.length === 0) {
+            const allRecords = getRecords();
+            if (allRecords.length === 0) {
                 showToast("目前沒有資料可以匯出", "warning");
                 return;
             }
@@ -383,7 +323,7 @@
             let csvContent = "\uFEFF"; 
             csvContent += "單位/部門,遊玩狀態,遊玩時間\n";
 
-            allRecordsData.forEach(record => {
+            allRecords.forEach(record => {
                 const dept = `"${record.department || '未指定'}"`;
                 const status = record.completed ? '"已完成過關"' : '"僅參與/未完成"';
                 let timeStr = '""';
@@ -406,43 +346,36 @@
         };
 
         window.toggleStats = function() {
+            renderStatsUI();
             document.getElementById('stats-panel').classList.toggle('hidden');
         };
 
-        // Registration form submission
-        document.getElementById('reg-form').addEventListener('submit', async (e) => {
+        // 註冊表單提交
+        document.getElementById('reg-form').addEventListener('submit', (e) => {
             e.preventDefault();
             const deptInput = document.getElementById('dept-input');
             const dept = deptInput.value;
             if (!dept) return;
 
-            const startBtn = document.getElementById('start-btn');
-            startBtn.disabled = true;
-            startBtn.textContent = '建立紀錄中...';
+            const records = getRecords();
+            const newRecord = {
+                id: 'rec_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                department: dept,
+                completed: false,
+                completed_at: '',
+                timestamp: Date.now()
+            };
+            records.push(newRecord);
+            saveRecords(records);
+            currentRecordId = newRecord.id;
 
-            try {
-                const docRef = await addDoc(recordsRef, {
-                    department: dept,
-                    completed: false,
-                    completed_at: '',
-                    timestamp: Date.now()
-                });
-                currentRecordDocId = docRef.id;
-
-                document.getElementById('display-dept').textContent = dept;
-                document.getElementById('reg-screen').classList.add('hidden');
-                document.getElementById('game-screen').classList.remove('hidden');
-                resetGame();
-            } catch (error) {
-                console.error("Error creating record:", error);
-                showToast("無法建立遊玩紀錄，請檢查網路連線", "error");
-            } finally {
-                startBtn.disabled = false;
-                startBtn.textContent = '開始挑戰 🚀';
-            }
+            document.getElementById('display-dept').textContent = dept;
+            document.getElementById('reg-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            resetGame();
         });
 
-        // Toast notification helper
+        // 浮動提示訊息 (Toast Notification)
         window.showToast = function(message, type = 'success') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -468,7 +401,7 @@
             }, 2500);
         };
 
-        // Game Logic
+        // 遊戲主邏輯
         const items = [
             { text: '體溫超過40°C', answer: 'heatstroke' },
             { text: '皮膚乾熱、可能發紅', answer: 'heatstroke' },
@@ -530,7 +463,7 @@
             selectedIndex = idx;
         }
 
-        window.handleDrop = async function(zone) {
+        window.handleDrop = function(zone) {
             if (selectedIndex === null) {
                 showToast("請先點選下方的一張卡片！", "warning");
                 return;
@@ -576,19 +509,17 @@
             document.getElementById('score-display').textContent = `${score} / ${totalItems}`;
         }
 
-        async function triggerCompletion() {
+        function triggerCompletion() {
             document.getElementById('final-score').textContent = `太棒了！您成功將 ${totalItems} 個熱傷害項目全數正確配對！`;
             document.getElementById('completion').classList.remove('hidden');
 
-            if (currentRecordDocId) {
-                try {
-                    const recordRef = doc(db, 'artifacts', appId, 'public', 'data', collectionName, currentRecordDocId);
-                    await updateDoc(recordRef, {
-                        completed: true,
-                        completed_at: new Date().toISOString()
-                    });
-                } catch (error) {
-                    console.error("Error updating completion status:", error);
+            if (currentRecordId) {
+                const records = getRecords();
+                const rec = records.find(r => r.id === currentRecordId);
+                if (rec) {
+                    rec.completed = true;
+                    rec.completed_at = new Date().toISOString();
+                    saveRecords(records);
                 }
             }
         }
@@ -603,11 +534,8 @@
             document.getElementById('completion').classList.add('hidden');
             document.getElementById('reg-screen').classList.remove('hidden');
             document.getElementById('dept-input').selectedIndex = 0;
-            currentRecordDocId = null;
+            currentRecordId = null;
         };
-
-        // Start initialization on load
-        window.onload = initApp;
     </script>
 </body>
 </html>
