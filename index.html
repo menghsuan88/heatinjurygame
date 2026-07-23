@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>熱傷害配對遊戲與後台統計</title>
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans TC', 'DM Sans', sans-serif; }
+        
+        /* Card & Animation Styles */
+        .card-item { transition: all 0.3s ease; cursor: pointer; user-select: none; }
+        .card-item:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
+        .card-item.selected { 
+            box-shadow: 0 0 0 3px #f59e0b, 0 10px 25px rgba(245, 158, 11, 0.3); 
+            transform: scale(1.05); 
+            background-color: #fffbeb;
+        }
+        .card-item.correct { animation: correctPulse 0.5s ease forwards; }
+        .card-item.incorrect { animation: shake 0.4s ease; background-color: #fee2e2; }
+        
+        .drop-zone { transition: all 0.2s; cursor: pointer; }
+        .drop-zone:hover { filter: brightness(0.95); transform: scale(1.01); }
+        .drop-zone.active-target { border-color: #f59e0b; background-color: #fef3c7; }
+
+        @keyframes shake { 
+            0%, 100% { transform: translateX(0); } 
+            25% { transform: translateX(-8px); } 
+            75% { transform: translateX(8px); } 
+        }
+        @keyframes correctPulse { 
+            0% { transform: scale(1); opacity: 1; } 
+            50% { transform: scale(1.1); background-color: #dcfce7; } 
+            100% { transform: scale(0.8); opacity: 0; } 
+        }
+        @keyframes fadeIn { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
+        }
+        .matched-item { animation: fadeIn 0.4s ease forwards; }
+        .overlay-enter { animation: fadeIn 0.3s ease-out forwards; }
+
+        /* Floating Toast Notification */
+        .toast-enter {
+            animation: toastIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes toastIn {
+            0% { transform: translateY(-30px) scale(0.9); opacity: 0; }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800 relative" style="background: linear-gradient(135deg, rgb(254, 249, 195), rgb(254, 215, 170));">
+
+    <!-- 選錯時的浮動提示訊息容器 (Toast Notification) -->
+    <div id="toast-container" class="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none"></div>
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="fixed inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-amber-500 mb-4"></div>
+        <p class="text-lg font-bold text-amber-700">正在連接雲端資料庫...</p>
+    </div>
+
+    <!-- Registration Screen -->
+    <div id="reg-screen" class="hidden flex items-center justify-center min-h-[90vh] p-4">
+        <div class="bg-white/95 backdrop-blur rounded-2xl p-8 shadow-2xl max-w-md w-full text-center border border-amber-100">
+            <div class="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl shadow-inner">
+                🌡️
+            </div>
+            <h1 class="text-3xl font-black mb-2 text-red-600 tracking-wide">熱傷害配對遊戲</h1>
+            <p class="text-amber-800 font-medium mb-8">請選擇您的所屬單位，為團隊爭取積分！</p>
+            
+            <form id="reg-form" class="space-y-5">
+                <div class="text-left">
+                    <label class="block text-gray-700 font-bold mb-2 ml-1" for="dept-input">您的單位/部門</label>
+                    <select id="dept-input" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-4 focus:ring-amber-400/20 focus:border-amber-400 focus:outline-none transition-all font-medium text-lg appearance-none cursor-pointer" required>
+                        <option value="" disabled selected>-- 請選擇單位 --</option>
+                        <option value="HQ總公司">HQ總公司</option>
+                        <option value="ESY內湖服務中心">ESY內湖服務中心</option>
+                        <option value="WSC中和服務中心">WSC中和服務中心</option>
+                        <option value="GTW機場運務中心">GTW機場運務中心</option>
+                        <option value="CKW桃園服務中心">CKW桃園服務中心</option>
+                        <option value="HCY新竹服務中心">HCY新竹服務中心</option>
+                        <option value="TXW台中服務中心">TXW台中服務中心</option>
+                        <option value="CWH彰化運務站">CWH彰化運務站</option>
+                        <option value="CYW嘉義服務中心">CYW嘉義服務中心</option>
+                        <option value="TNW台南服務中心">TNW台南服務中心</option>
+                        <option value="KHY高雄服務中心">KHY高雄服務中心</option>
+                    </select>
+                </div>
+                <button type="submit" id="start-btn" class="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white px-6 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
+                    開始挑戰 🚀
+                </button>
+            </form>
+            
+            <div class="mt-8 pt-6 border-t border-gray-100">
+                <button type="button" onclick="toggleStats()" class="text-gray-500 hover:text-amber-600 font-semibold flex items-center justify-center w-full transition-colors">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    進入管理者後台 (查看統計)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen (遊戲主畫面) -->
+    <div id="game-screen" class="hidden flex-col items-center min-h-[90vh] p-4 max-w-6xl mx-auto w-full z-10">
+        <!-- 頂部資訊區 -->
+        <header class="w-full bg-white/90 backdrop-blur rounded-2xl p-5 shadow-sm border border-amber-100 flex flex-col md:flex-row justify-between items-center mb-6">
+            <div class="text-center md:text-left">
+                <h2 class="text-2xl font-black text-red-600 mb-1">🌡️ 熱傷害配對挑戰</h2>
+                <p class="text-amber-800 font-medium text-sm md:text-base">
+                    為 <span id="display-dept" class="font-bold text-amber-600 border-b-2 border-amber-400 pb-0.5"></span> 爭取最高分！
+                </p>
+            </div>
+            <div class="mt-4 md:mt-0 flex items-center bg-white px-5 py-2.5 rounded-xl shadow border border-amber-50">
+                <span class="text-gray-500 font-bold mr-3">配對進度</span>
+                <span id="score-display" class="text-2xl font-black text-amber-500">0 / 12</span>
+            </div>
+        </header>
+
+        <!-- 放置區域 (Drop Zones) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 w-full mb-8">
+            <div id="zone-heatstroke" class="drop-zone rounded-3xl p-5 min-h-[220px] border-4 border-dashed border-red-300 bg-red-50/60 shadow-inner flex flex-col" onclick="handleDrop('heatstroke')">
+                <h3 class="text-xl font-black text-center mb-4 text-red-600">🔥 中暑 (Heatstroke)</h3>
+                <div id="matched-heatstroke" class="flex flex-col gap-2 flex-1"></div>
+            </div>
+            <div id="zone-both" class="drop-zone rounded-3xl p-5 min-h-[220px] border-4 border-dashed border-amber-300 bg-amber-50/60 shadow-inner flex flex-col" onclick="handleDrop('both')">
+                <h3 class="text-xl font-black text-center mb-4 text-amber-600">🔥💧 皆符合 (Both)</h3>
+                <div id="matched-both" class="flex flex-col gap-2 flex-1"></div>
+            </div>
+            <div id="zone-exhaustion" class="drop-zone rounded-3xl p-5 min-h-[220px] border-4 border-dashed border-blue-300 bg-blue-50/60 shadow-inner flex flex-col" onclick="handleDrop('exhaustion')">
+                <h3 class="text-xl font-black text-center mb-4 text-blue-600">💧 熱衰竭 (Exhaustion)</h3>
+                <div id="matched-exhaustion" class="flex flex-col gap-2 flex-1"></div>
+            </div>
+        </div>
+
+        <!-- 卡片池 (Card Pool) -->
+        <div class="w-full bg-white/60 backdrop-blur-sm rounded-3xl p-6 shadow-sm border border-white">
+            <p class="text-center mb-4 font-bold text-amber-800 text-lg flex items-center justify-center gap-2">
+                <span class="animate-bounce">👇</span> 點選下方卡片，再點選上方正確的分類區域
+            </p>
+            <div id="card-pool" class="flex flex-wrap gap-3 justify-center items-center"></div>
+        </div>
+        
+        <!-- 退出按鈕 -->
+        <div class="w-full mt-6 text-center">
+            <button onclick="quitGame()" class="text-gray-500 hover:text-red-500 font-bold transition-colors px-4 py-2">🚪 放棄並返回首頁</button>
+        </div>
+    </div>
+
+    <!-- 恭喜過關視窗 (Completion Modal) -->
+    <div id="completion" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overlay-enter">
+        <div class="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl">
+            <div class="text-6xl mb-4 animate-bounce">🎉</div>
+            <h2 class="text-3xl font-black text-green-600 mb-2">恭喜過關！</h2>
+            <div id="final-score" class="text-gray-600 mb-8 font-medium"></div>
+            <div class="space-y-3">
+                <button onclick="playAgain()" class="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white px-6 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all">為單位再玩一次 🔄</button>
+                <button onclick="quitGame()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-bold text-lg transition-all">回首頁 🏠</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats / Admin Panel -->
+    <div id="stats-panel" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 overlay-enter">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-black text-gray-800 flex items-center">
+                        📊 各單位參與數據後台
+                    </h2>
+                    <p class="text-sm text-gray-500 mt-1">即時同步雲端資料庫</p>
+                </div>
+                <button type="button" onclick="toggleStats()" class="w-10 h-10 bg-gray-100 hover:bg-red-100 hover:text-red-600 rounded-full flex items-center justify-center text-gray-600 transition-colors font-bold text-xl">
+                    ×
+                </button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="stats-content">
+                <div class="flex justify-center items-center py-10">
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500 mr-3"></div>
+                    <span class="text-gray-500">載入數據中...</span>
+                </div>
+            </div>
+            
+            <div class="mt-6 pt-6 border-t border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <p id="total-stats-text" class="font-bold text-amber-700 bg-amber-50 px-4 py-2 rounded-lg text-sm sm:text-base"></p>
+                <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                    <!-- 清除測試資料按鈕 -->
+                    <button type="button" id="clear-btn" class="w-full sm:w-auto px-4 py-2.5 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-all focus:outline-none">
+                        🗑️ 清除所有測試資料
+                    </button>
+                    <!-- 匯出 Excel 按鈕 -->
+                    <button type="button" onclick="exportToCSV()" class="w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-green-700 bg-white border-2 border-green-100 hover:bg-green-50 hover:border-green-200 transition-all focus:outline-none">
+                        📊 匯出 Excel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase Script SDK Module -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-heat-game';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            projectId: 'mock-project',
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        const collectionName = 'heat_game_records';
+        const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', collectionName);
+
+        let currentUser = null;
+        let allRecordsData = [];
+        let unsubscribeStats = null;
+        let currentRecordDocId = null;
+
+        async function initApp() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    const userCredential = await signInWithCustomToken(auth, __initial_auth_token);
+                    currentUser = userCredential.user;
+                } else {
+                    const userCredential = await signInAnonymously(auth);
+                    currentUser = userCredential.user;
+                }
+                
+                document.getElementById('loading-screen').classList.add('hidden');
+                document.getElementById('reg-screen').classList.remove('hidden');
+
+                setupRealtimeStats();
+            } catch (error) {
+                console.error("Firebase Auth Error:", error);
+                document.getElementById('loading-screen').innerHTML = `
+                    <div class="text-red-500 text-6xl mb-4">⚠️</div>
+                    <p class="text-lg font-bold text-red-700">系統連線失敗，請重新整理頁面</p>
+                    <p class="text-sm text-red-500 mt-2">${error.message}</p>
+                `;
+            }
+        }
+
+        function setupRealtimeStats() {
+            if (!currentUser) return;
+
+            unsubscribeStats = onSnapshot(recordsRef, (snapshot) => {
+                allRecordsData = [];
+                snapshot.forEach((docSnap) => {
+                    allRecordsData.push({ id: docSnap.id, ...docSnap.data() });
+                });
+                renderStatsUI();
+            }, (error) => {
+                console.error("Error listening to stats:", error);
+            });
+        }
+
+        function renderStatsUI() {
+            const container = document.getElementById('stats-content');
+            const totalText = document.getElementById('total-stats-text');
+            
+            if (allRecordsData.length === 0) {
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-12 text-gray-400">
+                        <div class="text-6xl mb-4 opacity-50">📭</div>
+                        <p class="font-bold text-lg">目前尚無任何單位的遊玩紀錄</p>
+                    </div>`;
+                totalText.textContent = "總計：0 參與 / 0 完成";
+                return;
+            }
+
+            const deptStats = {};
+            let totalParticipated = 0;
+            let totalCompleted = 0;
+
+            allRecordsData.forEach(record => {
+                const d = record.department || '未指定單位';
+                if (!deptStats[d]) {
+                    deptStats[d] = { count: 0, completed: 0 };
+                }
+                deptStats[d].count++;
+                totalParticipated++;
+                if (record.completed) {
+                    deptStats[d].completed++;
+                    totalCompleted++;
+                }
+            });
+
+            const sortedDepts = Object.entries(deptStats).sort((a, b) => b[1].count - a[1].count);
+
+            let html = `
+                <div class="bg-gray-50 rounded-2xl overflow-hidden border border-gray-100">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 text-sm uppercase tracking-wider font-bold">
+                                <th class="p-4 border-b border-gray-200">單位 / 部門</th>
+                                <th class="p-4 border-b border-gray-200 text-center">參與次數</th>
+                                <th class="p-4 border-b border-gray-200 text-center">成功過關</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+            `;
+
+            sortedDepts.forEach(([deptName, stats], index) => {
+                let rankIcon = '';
+                if (index === 0) rankIcon = '🥇 ';
+                else if (index === 1) rankIcon = '🥈 ';
+                else if (index === 2) rankIcon = '🥉 ';
+                else rankIcon = '<span class="text-gray-300 mr-2 text-xs w-4 inline-block text-center">' + (index+1) + '</span>';
+
+                const completionRate = stats.count > 0 ? Math.round((stats.completed / stats.count) * 100) : 0;
+                const progressColor = completionRate >= 80 ? 'bg-green-500' : (completionRate >= 50 ? 'bg-amber-400' : 'bg-red-400');
+
+                html += `
+                    <tr class="hover:bg-amber-50/50 transition-colors">
+                        <td class="p-4 font-bold text-gray-800">${rankIcon}${deptName}</td>
+                        <td class="p-4 text-center font-black text-gray-700">${stats.count}</td>
+                        <td class="p-4 text-center">
+                            <span class="font-bold text-green-600">${stats.completed}</span>
+                            <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2 overflow-hidden">
+                                <div class="${progressColor} h-1.5 rounded-full" style="width: ${completionRate}%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table></div>`;
+            container.innerHTML = html;
+            totalText.textContent = `雲端總計：${totalParticipated} 參與 / ${totalCompleted} 完成`;
+        }
+
+        // 綁定清除資料按鈕事件
+        document.getElementById('clear-btn').addEventListener('click', async () => {
+            if (!allRecordsData || allRecordsData.length === 0) {
+                showToast("目前沒有資料需要清除", "warning");
+                return;
+            }
+
+            if (!confirm("確定要清空雲端資料庫中所有的測試紀錄嗎？此動作無法復原。")) {
+                return;
+            }
+
+            const btn = document.getElementById('clear-btn');
+            btn.disabled = true;
+            btn.textContent = '清除中...';
+
+            try {
+                const deletePromises = allRecordsData.map(record => {
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', collectionName, record.id);
+                    return deleteDoc(docRef);
+                });
+                
+                await Promise.all(deletePromises);
+                showToast("已成功清空所有測試資料！", "success");
+            } catch (error) {
+                console.error("Error clearing records:", error);
+                showToast("清除失敗，請稍後再試", "error");
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🗑️ 清除所有測試資料';
+            }
+        });
+
+        window.exportToCSV = function() {
+            if (!allRecordsData || allRecordsData.length === 0) {
+                showToast("目前沒有資料可以匯出", "warning");
+                return;
+            }
+
+            let csvContent = "\uFEFF"; 
+            csvContent += "單位/部門,遊玩狀態,遊玩時間\n";
+
+            allRecordsData.forEach(record => {
+                const dept = `"${record.department || '未指定'}"`;
+                const status = record.completed ? '"已完成過關"' : '"僅參與/未完成"';
+                let timeStr = '""';
+                if (record.completed_at) {
+                    const date = new Date(record.completed_at);
+                    timeStr = `"${date.toLocaleString('zh-TW', { hour12: false })}"`;
+                }
+                csvContent += `${dept},${status},${timeStr}\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `熱傷害遊戲參與統計_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast("Excel 報表已成功下載！", "success");
+        };
+
+        window.toggleStats = function() {
+            document.getElementById('stats-panel').classList.toggle('hidden');
+        };
+
+        // Registration form submission
+        document.getElementById('reg-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const deptInput = document.getElementById('dept-input');
+            const dept = deptInput.value;
+            if (!dept) return;
+
+            const startBtn = document.getElementById('start-btn');
+            startBtn.disabled = true;
+            startBtn.textContent = '建立紀錄中...';
+
+            try {
+                const docRef = await addDoc(recordsRef, {
+                    department: dept,
+                    completed: false,
+                    completed_at: '',
+                    timestamp: Date.now()
+                });
+                currentRecordDocId = docRef.id;
+
+                document.getElementById('display-dept').textContent = dept;
+                document.getElementById('reg-screen').classList.add('hidden');
+                document.getElementById('game-screen').classList.remove('hidden');
+                resetGame();
+            } catch (error) {
+                console.error("Error creating record:", error);
+                showToast("無法建立遊玩紀錄，請檢查網路連線", "error");
+            } finally {
+                startBtn.disabled = false;
+                startBtn.textContent = '開始挑戰 🚀';
+            }
+        });
+
+        // Toast notification helper
+        window.showToast = function(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bgColors = {
+                success: 'bg-green-600 text-white',
+                warning: 'bg-amber-500 text-white',
+                error: 'bg-red-600 text-white'
+            };
+            toast.className = `toast-enter px-6 py-3 rounded-2xl shadow-xl font-bold text-sm md:text-base flex items-center space-x-2 ${bgColors[type] || bgColors.success}`;
+            
+            let icon = '✅';
+            if (type === 'warning') icon = '⚠️';
+            if (type === 'error') icon = '❌';
+
+            toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-20px)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 2500);
+        };
+
+        // Game Logic
+        const items = [
+            { text: '體溫超過40°C', answer: 'heatstroke' },
+            { text: '皮膚乾熱、可能發紅', answer: 'heatstroke' },
+            { text: '意識改變或失去意識', answer: 'heatstroke' },
+            { text: '立即移至陰涼處並降溫', answer: 'heatstroke' },
+            { text: '意識不清時立即撥打119', answer: 'heatstroke' },
+            { text: '大量出汗、臉色蒼白', answer: 'exhaustion' },
+            { text: '皮膚濕冷', answer: 'exhaustion' },
+            { text: '補充含電解質的水分', answer: 'exhaustion' },
+            { text: '頭暈、噁心、虛弱', answer: 'both' },
+            { text: '頭痛', answer: 'both' },
+            { text: '肌肉痙攣', answer: 'both' },
+            { text: '移至陰涼處休息並觀察', answer: 'both' },
+        ];
+
+        let shuffledItems = [];
+        let selectedIndex = null;
+        let score = 0;
+        const totalItems = items.length;
+
+        function shuffleArray(array) {
+            const arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        window.resetGame = function() {
+            score = 0;
+            selectedIndex = null;
+            updateScoreDisplay();
+            document.getElementById('completion').classList.add('hidden');
+            document.getElementById('matched-heatstroke').innerHTML = '';
+            document.getElementById('matched-both').innerHTML = '';
+            document.getElementById('matched-exhaustion').innerHTML = '';
+            shuffledItems = shuffleArray(items);
+            renderCardPool();
+        };
+
+        function renderCardPool() {
+            const pool = document.getElementById('card-pool');
+            pool.innerHTML = '';
+            shuffledItems.forEach((item, idx) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'card-item px-4 py-3 bg-white border border-gray-200 rounded-2xl shadow-sm text-sm md:text-base font-bold text-gray-700';
+                btn.textContent = item.text;
+                btn.dataset.index = idx;
+                btn.onclick = () => selectCard(btn, idx);
+                pool.appendChild(btn);
+            });
+        }
+
+        function selectCard(el, idx) {
+            document.querySelectorAll('.card-item').forEach(c => c.classList.remove('selected'));
+            el.classList.add('selected');
+            selectedIndex = idx;
+        }
+
+        window.handleDrop = async function(zone) {
+            if (selectedIndex === null) {
+                showToast("請先點選下方的一張卡片！", "warning");
+                return;
+            }
+
+            const item = shuffledItems[selectedIndex];
+            const cardEl = document.querySelector(`.card-item[data-index="${selectedIndex}"]`);
+
+            if (item.answer === zone) {
+                cardEl.classList.add('correct');
+                
+                setTimeout(() => {
+                    const zoneContainer = document.getElementById(`matched-${zone}`);
+                    const matchedDiv = document.createElement('div');
+                    const colorMap = {
+                        heatstroke: 'bg-red-100 text-red-700 border-red-200',
+                        both: 'bg-amber-100 text-amber-700 border-amber-200',
+                        exhaustion: 'bg-blue-100 text-blue-700 border-blue-200'
+                    };
+                    matchedDiv.className = `matched-item p-2.5 rounded-xl text-sm font-bold border ${colorMap[zone]}`;
+                    matchedDiv.textContent = item.text;
+                    zoneContainer.appendChild(matchedDiv);
+                    
+                    cardEl.remove();
+                    score++;
+                    updateScoreDisplay();
+                    selectedIndex = null;
+
+                    if (score === totalItems) {
+                        triggerCompletion();
+                    }
+                }, 400);
+            } else {
+                cardEl.classList.add('incorrect');
+                showToast("選錯囉！這個分類不正確，請再試一次 ❌", "error");
+                setTimeout(() => {
+                    cardEl.classList.remove('incorrect');
+                }, 400);
+            }
+        };
+
+        function updateScoreDisplay() {
+            document.getElementById('score-display').textContent = `${score} / ${totalItems}`;
+        }
+
+        async function triggerCompletion() {
+            document.getElementById('final-score').textContent = `太棒了！您成功將 ${totalItems} 個熱傷害項目全數正確配對！`;
+            document.getElementById('completion').classList.remove('hidden');
+
+            if (currentRecordDocId) {
+                try {
+                    const recordRef = doc(db, 'artifacts', appId, 'public', 'data', collectionName, currentRecordDocId);
+                    await updateDoc(recordRef, {
+                        completed: true,
+                        completed_at: new Date().toISOString()
+                    });
+                } catch (error) {
+                    console.error("Error updating completion status:", error);
+                }
+            }
+        }
+
+        window.playAgain = function() {
+            document.getElementById('completion').classList.add('hidden');
+            resetGame();
+        };
+
+        window.quitGame = function() {
+            document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('completion').classList.add('hidden');
+            document.getElementById('reg-screen').classList.remove('hidden');
+            document.getElementById('dept-input').selectedIndex = 0;
+            currentRecordDocId = null;
+        };
+
+        // Start initialization on load
+        window.onload = initApp;
+    </script>
+</body>
+</html>
