@@ -456,7 +456,7 @@ function doPost(e) {
             modal.classList.toggle('hidden');
         };
 
-        document.getElementById('reg-form').addEventListener('submit', async (e) => {
+        document.getElementById('reg-form').addEventListener('submit', (e) => {
             e.preventDefault();
             const deptInput = document.getElementById('dept-input');
             const dept = deptInput.value;
@@ -470,13 +470,13 @@ function doPost(e) {
                 timestamp: new Date().toISOString()
             };
 
-            showToast("正在建立雲端紀錄...", "warning");
-            
-            await sendToCloud({
+            // 改為非同步背景傳送，不等待伺服器回應，直接進入遊戲畫面以達秒開效果
+            sendToCloud({
                 action: 'recordStart',
                 ...currentRecord
-            });
+            }).catch(err => console.log("Background sync started", err));
 
+            // 立即切換畫面，不再有 10 秒延遲
             document.getElementById('display-dept').textContent = dept;
             document.getElementById('reg-screen').classList.add('hidden');
             document.getElementById('game-screen').classList.remove('hidden');
