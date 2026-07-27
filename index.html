@@ -502,18 +502,15 @@ function doPost(e) {
         };
 
         const items = [
-            { text: '體溫超過40°C', answer: 'heatstroke' },
-            { text: '皮膚乾熱、可能發紅', answer: 'heatstroke' },
-            { text: '意識改變或失去意識', answer: 'heatstroke' },
+            { text: '體溫超過40°C、皮膚乾熱', answer: 'heatstroke' },
             { text: '立即移至陰涼處並降溫', answer: 'heatstroke' },
             { text: '意識不清時立即撥打119', answer: 'heatstroke' },
             { text: '大量出汗、臉色蒼白', answer: 'exhaustion' },
             { text: '皮膚濕冷', answer: 'exhaustion' },
             { text: '補充含電解質的水分', answer: 'exhaustion' },
-            { text: '頭暈、噁心、虛弱', answer: 'both' },
-            { text: '頭痛', answer: 'both' },
+            { text: '頭痛、頭暈', answer: 'both' },
             { text: '肌肉痙攣', answer: 'both' },
-            { text: '移至陰涼處休息並觀察', answer: 'both' },
+            { text: '噁心、嘔吐', answer: 'both' },
         ];
 
         let shuffledItems = [];
